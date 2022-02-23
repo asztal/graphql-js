@@ -1497,6 +1497,7 @@ function executeStreamIterator(
       label,
       path: fieldPath,
       parentContext,
+      iterator,
     });
     const dataPromise: Promise<unknown> = iterator
       .next()
@@ -1550,6 +1551,7 @@ function yieldSubsequentPayloads(
   initialResult: ExecutionResult,
 ): AsyncGenerator<AsyncExecutionResult, void, void> {
   let _hasReturnedInitialResult = false;
+  let isDone = false;
 
   async function race(): Promise<IteratorResult<AsyncExecutionResult>> {
     if (exeContext.subsequentPayloads.length === 0) {
@@ -1620,17 +1622,31 @@ function yieldSubsequentPayloads(
           },
           done: false,
         });
-      } else if (exeContext.subsequentPayloads.length === 0) {
+      } else if (exeContext.subsequentPayloads.length === 0 || isDone) {
         return Promise.resolve({ value: undefined, done: true });
       }
       return race();
     },
-    // TODO: implement return & throw
-    return: /* istanbul ignore next: will be covered in follow up */ () =>
-      Promise.resolve({ value: undefined, done: true }),
-    throw: /* istanbul ignore next: will be covered in follow up */ (
+    async return(): Promise<IteratorResult<AsyncExecutionResult, void>> {
+      await Promise.all(
+        exeContext.subsequentPayloads.map((asyncPayloadRecord) =>
+          asyncPayloadRecord.iterator?.return?.(),
+        ),
+      );
+      isDone = true;
+      return { value: undefined, done: true };
+    },
+    async throw(
       error?: unknown,
-    ) => Promise.reject(error),
+    ): Promise<IteratorResult<AsyncExecutionResult, void>> {
+      await Promise.all(
+        exeContext.subsequentPayloads.map((asyncPayloadRecord) =>
+          asyncPayloadRecord.iterator?.return?.(),
+        ),
+      );
+      isDone = true;
+      return Promise.reject(error);
+    },
   };
 }
 
